@@ -1,0 +1,88 @@
+seq_len: 8
+Input LayerNorm: 0.003584 ms
+QKV Linear: 0.124723 ms
+Attention + softmax: 0.0247808 ms
+Weighted sum: 0.043008 ms
+Add bias + residual + layernorm: 0.0039936 ms
+h-to-4h + bias + GELU: 0.16087 ms
+4h-to-h: 0.158515 ms
+Add bias + residual: 0.0039936 ms
+input_lengths: tensor([8])
+time costs:    886.4801 ms
+seq_len: 16
+Input LayerNorm: 0.0036864 ms
+QKV Linear: 0.125235 ms
+Attention + softmax: 0.026112 ms
+Weighted sum: 0.0429056 ms
+Add bias + residual + layernorm: 0.0039936 ms
+h-to-4h + bias + GELU: 0.161178 ms
+4h-to-h: 0.15913 ms
+Add bias + residual: 0.0028672 ms
+input_lengths: tensor([16])
+time costs:    877.4478 ms
+seq_len: 32
+Input LayerNorm: 0.0037888 ms
+QKV Linear: 0.126566 ms
+Attention + softmax: 0.023552 ms
+Weighted sum: 0.0462848 ms
+Add bias + residual + layernorm: 0.0041984 ms
+h-to-4h + bias + GELU: 0.162202 ms
+4h-to-h: 0.159744 ms
+Add bias + residual: 0.0029696 ms
+input_lengths: tensor([32])
+time costs:    873.5196 ms
+seq_len: 64
+Input LayerNorm: 0.0043008 ms
+QKV Linear: 0.129126 ms
+Attention + softmax: 0.0258048 ms
+Weighted sum: 0.0525312 ms
+Add bias + residual + layernorm: 0.0050176 ms
+h-to-4h + bias + GELU: 0.165274 ms
+4h-to-h: 0.167629 ms
+Add bias + residual: 0.003584 ms
+input_lengths: tensor([64])
+time costs:    877.1013 ms
+seq_len: 128
+Input LayerNorm: 0.0047104 ms
+QKV Linear: 0.147558 ms
+Attention + softmax: 0.0351232 ms
+Weighted sum: 0.0724992 ms
+Add bias + residual + layernorm: 0.005632 ms
+h-to-4h + bias + GELU: 0.178586 ms
+4h-to-h: 0.170189 ms
+Add bias + residual: 0.0041984 ms
+input_lengths: tensor([128])
+time costs:    880.2174 ms
+seq_len: 256
+Input LayerNorm: 0.0062464 ms
+QKV Linear: 0.240333 ms
+Attention + softmax: 0.065536 ms
+Weighted sum: 0.0857088 ms
+Add bias + residual + layernorm: 0.00768 ms
+h-to-4h + bias + GELU: 0.334643 ms
+4h-to-h: 0.277606 ms
+Add bias + residual: 0.00512 ms
+input_lengths: tensor([256])
+time costs:    911.1081 ms
+seq_len: 512
+Input LayerNorm: 0.0128 ms
+QKV Linear: 0.436634 ms
+Attention + softmax: 0.19753 ms
+Weighted sum: 0.175104 ms
+Add bias + residual + layernorm: 0.0150528 ms
+h-to-4h + bias + GELU: 0.641843 ms
+4h-to-h: 0.646349 ms
+Add bias + residual: 0.0140288 ms
+input_lengths: tensor([512])
+time costs:    923.1559 ms
+seq_len: 1024
+Input LayerNorm: 0.0236544 ms
+QKV Linear: 0.852582 ms
+Attention + softmax: 0.561971 ms
+Weighted sum: 0.302592 ms
+Add bias + residual + layernorm: 0.033792 ms
+h-to-4h + bias + GELU: 1.18999 ms
+4h-to-h: 1.08155 ms
+Add bias + residual: 0.0328704 ms
+input_lengths: tensor([1024])
+time costs:    948.7546 ms

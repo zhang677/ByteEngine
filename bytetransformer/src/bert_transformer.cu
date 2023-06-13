@@ -22,8 +22,45 @@
 #include "bytetransformer/include/gemm_bias_act.h"
 #include "bytetransformer/include/layernorm.h"
 #include "bytetransformer/include/remove_padding.h"
+//#include <chrono>
+
+const int warmup = 2;
+const int repeat = 10;
+
+
+
 
 namespace bytetransformer {
+
+struct GpuTimer {
+  cudaEvent_t startEvent;
+  cudaEvent_t stopEvent;
+
+  GpuTimer() {
+    cudaEventCreate(&startEvent);
+    cudaEventCreate(&stopEvent);
+  }
+
+  ~GpuTimer() {
+    cudaEventDestroy(startEvent);
+    cudaEventDestroy(stopEvent);
+  }
+
+  void start() { cudaEventRecord(startEvent, 0); }
+
+  void stop() {
+    cudaEventRecord(stopEvent, 0);
+    cudaEventSynchronize(stopEvent);
+  }
+
+  float elapsed_msecs() {
+    float elapsed;
+    cudaEventElapsedTime(&elapsed, startEvent, stopEvent);
+    return elapsed;
+  }
+};
+
+
 template <OperationType OpType>
 void BertTransformer<OpType>::bert_infer(
     BertTransformerInferParam infer_param) {
@@ -94,22 +131,54 @@ void BertTransformer<OpType>::bert_infer(
   // synchronize in layernorm_v2 allows input to be same as output
   // but from_tensor is a const ...
   // newly allocate a buffer for normalized tensor
+  // Start time
+    // cudaEvent_t beg, end;
+    // float elapsed_time = 0.0;
+    // cudaEventCreate(&beg);
+    // cudaEventCreate(&end);
+    // cudaEventRecord(beg);
+GpuTimer timer;
+for (int i = 0; i < warmup; i++) {
   input_layernorm_kernel_launcher(
         inter_matmul_buf, from_tensor, 
         param_.attr_output_layernorm_gamma, param_.attr_output_layernorm_beta, 
         m, n, hidden_dim, stream, use_fp32_);
+}
+//auto start = std::chrono::high_resolution_clock::now();
+timer.start();
+for (int i = 0; i < repeat; i++) {
+  input_layernorm_kernel_launcher(
+        inter_matmul_buf, from_tensor, 
+        param_.attr_output_layernorm_gamma, param_.attr_output_layernorm_beta, 
+        m, n, hidden_dim, stream, use_fp32_);
+}
+//auto end = std::chrono::high_resolution_clock::now();
+timer.stop();
+// Elapsed time in ms
+//auto elapsed_time = std::chrono::duration<double, std::milli>(end - start).count() / repeat;
+float elapsed_time = timer.elapsed_msecs() / repeat;
+std::cout << "Input LayerNorm: " << elapsed_time << " ms" << std::endl;
 
+for (int i = 0; i < warmup; i++) {
   dense_layer_kernel_launcher(inter_matmul_buf, param_.attr_kernel_QKV, qkv_buf, m,
                               k, n * 3, cublas_handle, stream,
                               param_.cublas_Algo[0]);
+}
+//start = std::chrono::high_resolution_clock::now();
+timer.start();
+for (int i = 0; i < repeat; i++) {
+    dense_layer_kernel_launcher(inter_matmul_buf, param_.attr_kernel_QKV, qkv_buf, m,
+                                k, n * 3, cublas_handle, stream,
+                                param_.cublas_Algo[0]);
+}
+//end = std::chrono::high_resolution_clock::now();
+timer.stop();
+// Elapsed time in ms
+//elapsed_time = std::chrono::duration<double, std::milli>(end - start).count() / repeat;
+elapsed_time = timer.elapsed_msecs() / repeat;
+std::cout << "QKV Linear: " << elapsed_time << " ms" << std::endl;
 
   // cudaMemcpy(qkv_cache_ptr, qkv_buf, 3 * m * n * sizeof(DataType_), cudaMemcpyDeviceToDevice);
-
-  cudaEvent_t beg, end;
-  float elapsed_time = 0.0;
-  cudaEventCreate(&beg);
-  cudaEventCreate(&end);
-  cudaEventRecord(beg);
 
   // [hk:] add rotary embedding into all attention implementations
   struct AttentionInferParam<DataType_> attention_infer_param {
@@ -117,29 +186,104 @@ void BertTransformer<OpType>::bert_infer(
         cublas_handle, stream, et_param
   };
   attention_infer_param.attention_bias = infer_param.attention_bias;
+
+for (int i = 0; i < warmup; i++) {
   attention_layer_->infer(attention_infer_param);
+}
+//start = std::chrono::high_resolution_clock::now();
+timer.start();
+for (int i = 0; i < repeat; i++) {
+    attention_layer_->infer(attention_infer_param);
+}
+//end = std::chrono::high_resolution_clock::now();
+timer.stop();
+// Elapsed time in ms
+//elapsed_time = std::chrono::duration<double, std::milli>(end - start).count() / repeat;
+elapsed_time = timer.elapsed_msecs() / repeat;
+std::cout << "Attention + softmax: " << elapsed_time << " ms" << std::endl;
 
   // [hk:] mem copy
   cudaMemcpy(qkv_cache_ptr, qkv_buf, 3 * m * n * sizeof(DataType_), cudaMemcpyDeviceToDevice);
 
   // cudaMemcpy(qkv_cache_ptr, attr_out_buf, m * n * sizeof(DataType_), cudaMemcpyDeviceToDevice);
 
+for(int i = 0; i < warmup; i++) {
   dense_layer_kernel_launcher(attr_out_buf, param_.attr_output_kernel,
                               attr_matmul_buf, m, k, n, cublas_handle, stream,
                               param_.cublas_Algo[0]);
+}
+//start = std::chrono::high_resolution_clock::now();
+timer.start();
+for(int i = 0; i < repeat; i++) {
+    dense_layer_kernel_launcher(attr_out_buf, param_.attr_output_kernel,
+                                attr_matmul_buf, m, k, n, cublas_handle, stream,
+                                param_.cublas_Algo[0]);
+}
+//end = std::chrono::high_resolution_clock::now();
+timer.stop();
+// Elapsed time in ms
+//elapsed_time = std::chrono::duration<double, std::milli>(end - start).count() / repeat;
+elapsed_time = timer.elapsed_msecs() / repeat;
+std::cout << "Weighted sum: " << elapsed_time << " ms" << std::endl;
 
+for(int i = 0; i < warmup; i++) {
   add_bias_residual_layernorm_kernel_launcher(
       attr_matmul_buf, inter_matmul_buf, param_.attr_output_bias,
       param_.output_layernorm_gamma, param_.output_layernorm_beta, alpha, 
       m, n, hidden_dim, stream, use_fp32_);
+}
+//start = std::chrono::high_resolution_clock::now();
+timer.start();
+for(int i = 0; i < repeat; i++) {
+    add_bias_residual_layernorm_kernel_launcher(
+        attr_matmul_buf, inter_matmul_buf, param_.attr_output_bias,
+        param_.output_layernorm_gamma, param_.output_layernorm_beta, alpha, 
+        m, n, hidden_dim, stream, use_fp32_);
+}
+//end = std::chrono::high_resolution_clock::now();
+timer.stop();
+// Elapsed time in ms
+//elapsed_time = std::chrono::duration<double, std::milli>(end - start).count() / repeat;
+elapsed_time = timer.elapsed_msecs() / repeat;
+std::cout << "Add bias + residual + layernorm: " << elapsed_time << " ms" << std::endl;
 
+for(int i = 0; i < warmup; i++) {
   gemm_bias_gelu(attr_matmul_buf, param_.inter_kernel, inter_matmul_buf,
                  param_.inter_bias, m, k, n * param_.intermediate_size, stream,
                  cublas_handle, param_.cublas_Algo[1], arch_);
+}
+//start = std::chrono::high_resolution_clock::now();
+timer.start();
+for(int i = 0; i < repeat; i++) {
+    gemm_bias_gelu(attr_matmul_buf, param_.inter_kernel, inter_matmul_buf,
+                   param_.inter_bias, m, k, n * param_.intermediate_size, stream,
+                   cublas_handle, param_.cublas_Algo[1], arch_);
+}
+//end = std::chrono::high_resolution_clock::now();
+timer.stop();
+// Elapsed time in ms
+//elapsed_time = std::chrono::duration<double, std::milli>(end - start).count() / repeat;
+elapsed_time = timer.elapsed_msecs() / repeat;
+std::cout << "h-to-4h + bias + GELU: " << elapsed_time << " ms" << std::endl;
 
+for(int i = 0; i < warmup; i++) {
   dense_layer_kernel_launcher(inter_matmul_buf, param_.output_kernel,
                               transformer_out, m, k * param_.intermediate_size,
                               n, cublas_handle, stream, param_.cublas_Algo[2]);
+}
+//start = std::chrono::high_resolution_clock::now();
+timer.start();
+for(int i = 0; i < repeat; i++) {
+    dense_layer_kernel_launcher(inter_matmul_buf, param_.output_kernel,
+                                transformer_out, m, k * param_.intermediate_size,
+                                n, cublas_handle, stream, param_.cublas_Algo[2]);
+}
+//end = std::chrono::high_resolution_clock::now();
+timer.stop();
+// Elapsed time in ms
+//elapsed_time = std::chrono::duration<double, std::milli>(end - start).count() / repeat;
+elapsed_time = timer.elapsed_msecs() / repeat;
+std::cout << "4h-to-h: " << elapsed_time << " ms" << std::endl;
 
   // [hk:] in chatGLM the final layernorm is behind all GLM blocks
   /*if (is_remove_padding_)
@@ -157,22 +301,40 @@ void BertTransformer<OpType>::bert_infer(
 
   // [hk:] Note that residual part is only modified when bs = 1
   // TODO: remove param_gamma and param_beta
-  if (is_remove_padding_)
+  if (is_remove_padding_) {
     add_bias_residual_restore_output_kernel_launcher(
         transformer_out, attr_matmul_buf, param_.output_bias,
         param_.output_layernorm_gamma, param_.output_layernorm_beta,
         batch_size * seq_len, n, hidden_dim, stream, use_fp32_, inner_buf,
         et_param.batch_idx, et_param.word_idx, seq_len);
-  else
-    add_bias_residual_kernel_launcher(
-        transformer_out, attr_matmul_buf, param_.output_bias,
-        param_.output_layernorm_gamma, param_.output_layernorm_beta,
-        alpha, batch_size * seq_len, n, hidden_dim, stream, use_fp32_);
+    }
+  else {
+    for(int i = 0; i < warmup; i++) {
+        add_bias_residual_kernel_launcher(
+            transformer_out, attr_matmul_buf, param_.output_bias,
+            param_.output_layernorm_gamma, param_.output_layernorm_beta,
+            alpha, batch_size * seq_len, n, hidden_dim, stream, use_fp32_);
+    }
+    //start = std::chrono::high_resolution_clock::now();
+    timer.start();
+    for(int i = 0; i < repeat; i++) {
+        add_bias_residual_kernel_launcher(
+            transformer_out, attr_matmul_buf, param_.output_bias,
+            param_.output_layernorm_gamma, param_.output_layernorm_beta,
+            alpha, batch_size * seq_len, n, hidden_dim, stream, use_fp32_);
+    }
+    //end = std::chrono::high_resolution_clock::now();
+    timer.stop();
+    // Elapsed time in ms
+    //elapsed_time = std::chrono::duration<double, std::milli>(end - start).count() / repeat;
+    elapsed_time = timer.elapsed_msecs() / repeat;
+    std::cout << "Add bias + residual: " << elapsed_time << " ms" << std::endl;
+  }
 }
-
 
 template void BertTransformer<OperationType::FP32>::bert_infer(
     BertTransformerInferParam infer_param);
 template void BertTransformer<OperationType::HALF>::bert_infer(
     BertTransformerInferParam infer_param);
+
 }  // namespace bytetransformer
